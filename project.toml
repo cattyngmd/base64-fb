@@ -1,0 +1,8 @@
+name = "base64"
+type = "library"
+
+lib-c = true
+
+[[dependency]]
+url = "https://github.com/fireball-lang/std.git"
+revision = "7d349fad9a6e3b929a0ea35a9d1922d50fe24110"

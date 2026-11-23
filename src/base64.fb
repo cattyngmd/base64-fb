@@ -1,0 +1,144 @@
+mod base64;
+
+import std::c::{malloc, free};
+import std::{String};
+
+const STANDARD_ALPHABET: StringView = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const URL_SAFE_ALPHABET: StringView = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+pub enum Alphabet {
+    Standard,
+    UrlSafe,
+}
+
+impl Alphabet {
+    pub func chars(self) StringView {
+        if (*self == Alphabet::UrlSafe) return URL_SAFE_ALPHABET;
+        else return STANDARD_ALPHABET;
+    }
+}
+
+pub func encode_base64(data: []u8, alphabet: Alphabet) ?[]u8 {
+    var chars = alphabet.chars();
+
+    var out_len = (data.size + 2u) / 3u * 4u;
+    var out = malloc(out_len + 1u) as mut *u8;
+    if (out == null) return Option:[[]u8]::none();
+
+    var j = 0u;
+
+    for (var i = 0u; i < data.size; i += 3u) {
+        var rem = data.size - i;
+
+        var a = data.ptr[i] as u32;
+        var b = 0u as u32;
+        var c = 0u as u32;
+
+        if (rem > 1u) b = data.ptr[i + 1u] as u32;
+        if (rem > 2u) c = data.ptr[i + 2u] as u32;
+
+        out[j++] = chars[a >> 2];
+        out[j++] = chars[((a & 0x03) << 4) | (b >> 4)];
+
+        if (rem > 1u) {
+            out[j++] = chars[((b & 0x0F) << 2) | (c >> 6)];
+        } else {
+            out[j++] = '=';
+        }
+
+        if (rem > 2u) {
+            out[j++] = chars[c & 0x3F];
+        } else {
+            out[j++] = '=';
+        }
+    }
+
+    out[j] = 0u as u8;
+
+    return Slice: [u8] { ptr: out, size: out_len };
+}
+
+pub func decode_base64(data: []u8, alphabet: Alphabet) ?[]u8 {
+    var pad = 0u;
+    if (data.size > 0u && data.ptr[data.size - 1u] == '=') {
+        pad++;
+        if (data.size > 1u && data.ptr[data.size - 2u] == '=') pad++;
+    }
+
+    if (pad > 0u && data.size % 4u != 0u) return Option:[[]u8]::none();
+
+    var body = data.size - pad;
+
+    if (body % 4u == 1u) return Option:[[]u8]::none();
+
+    var tail = body % 4u;
+    var out_len = body / 4u * 3u;
+    if (tail > 0u) out_len += tail - 1u;
+
+    var out = malloc(out_len + 1u) as mut *u8;
+    if (out == null) return Option:[[]u8]::none();
+
+    var j = 0u;
+
+    for (var i = 0u; i < body; i += 4u) {
+        var n = body - i;
+        if (n > 4u) n = 4u;
+
+        var group = 0u as u32;
+
+        for (var k = 0u; k < 4u; k++) {
+            var value = 0;
+
+            if (k < n) {
+                value = decode_char(data.ptr[i + k], alphabet);
+
+                if (value < 0) {
+                    free(out);
+                    return Option:[[]u8]::none();
+                }
+            }
+
+            group = (group << 6) | (value as u32);
+        }
+
+        out[j++] = (group >> 16) as u8;
+        if (n > 2u) out[j++] = ((group >> 8) & 0xFF) as u8;
+        if (n > 3u) out[j++] = (group & 0xFF) as u8;
+    }
+
+    out[j] = 0u as u8;
+
+    return Slice:[u8] { ptr: out, size: out_len };
+}
+
+pub func encode_base64_str(data: StringView, alphabet: Alphabet) ?String {
+    return to_string(encode_base64(data, alphabet));
+}
+
+pub func decode_base64_str(data: StringView, alphabet: Alphabet) ?String {
+    return to_string(decode_base64(data, alphabet));
+}
+
+func to_string(res: ?[]u8) ?String {
+    if (res.is_none()) return Option:[String]::none();
+
+    var buf = res.unwrap();
+
+    var str = String::with_capacity(buf.size);
+    str.write(buf);
+    free(buf.ptr);
+
+    return str;
+}
+
+func decode_char(c: u8, alphabet: Alphabet) i32 {
+    if (c >= 'A' && c <= 'Z') return (c as i32) - ('A' as i32);
+    if (c >= 'a' && c <= 'z') return (c as i32) - ('a' as i32) + 26;
+    if (c >= '0' && c <= '9') return (c as i32) - ('0' as i32) + 52;
+
+    var chars = alphabet.chars();
+    if (c == chars[62u]) return 62;
+    if (c == chars[63u]) return 63;
+
+    return -1;
+}

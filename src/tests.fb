@@ -1,0 +1,229 @@
+// idgaf its ai generated
+
+mod base64::tests;
+
+import std::c::{free};
+import std::{String};
+import base64::{encode_base64, decode_base64, encode_base64_str, decode_base64_str, Alphabet};
+
+// utils
+func view(b: []u8) StringView {
+    return StringView { ptr: b.ptr, size: b.size as u32 };
+}
+
+func encodes_to(input: StringView, alphabet: Alphabet, expected: StringView) bool {
+    var res = encode_base64(input, alphabet);
+    if (res.is_none()) return false;
+
+    var out = res.unwrap();
+    var ok = view(out).eq(expected) && out.ptr[out.size] == 0u;
+    free(out.ptr);
+    return ok;
+}
+
+func decodes_to(input: StringView, alphabet: Alphabet, expected: StringView) bool {
+    var res = decode_base64(input, alphabet);
+    if (res.is_none()) return false;
+
+    var out = res.unwrap();
+    var ok = view(out).eq(expected) && out.ptr[out.size] == 0u;
+    free(out.ptr);
+    return ok;
+}
+
+func rejects(input: StringView, alphabet: Alphabet) bool {
+    var res = decode_base64(input, alphabet);
+    if (res.is_none()) return true;
+
+    free(res.unwrap().ptr);
+    return false;
+}
+
+func str_matches(res: ?String, expected: StringView) bool {
+    if (res.is_none()) return false;
+
+    var str = res.unwrap();
+    var ok = (str as StringView).eq(expected);
+    str.free();
+    return ok;
+}
+
+func roundtrips(data: []u8, alphabet: Alphabet) bool {
+    var enc = encode_base64(data, alphabet).unwrap();
+    var res = decode_base64(enc, alphabet);
+    free(enc.ptr);
+
+    if (res.is_none()) return false;
+
+    var dec = res.unwrap();
+    var ok = view(dec).eq(view(data));
+    free(dec.ptr);
+    return ok;
+}
+
+// encode
+#[test("encode - empty")]
+func encodeEmpty() bool { return encodes_to("", Alphabet::Standard, ""); }
+
+#[test("encode - f")]
+func encodeF() bool { return encodes_to("f", Alphabet::Standard, "Zg=="); }
+
+#[test("encode - fo")]
+func encodeFo() bool { return encodes_to("fo", Alphabet::Standard, "Zm8="); }
+
+#[test("encode - foo")]
+func encodeFoo() bool { return encodes_to("foo", Alphabet::Standard, "Zm9v"); }
+
+#[test("encode - foob")]
+func encodeFoob() bool { return encodes_to("foob", Alphabet::Standard, "Zm9vYg=="); }
+
+#[test("encode - fooba")]
+func encodeFooba() bool { return encodes_to("fooba", Alphabet::Standard, "Zm9vYmE="); }
+
+#[test("encode - foobar")]
+func encodeFoobar() bool { return encodes_to("foobar", Alphabet::Standard, "Zm9vYmFy"); }
+
+
+#[test("encode - standard uses '/'")]
+func encodeStandardSlash() bool { return encodes_to("???", Alphabet::Standard, "Pz8/"); }
+
+#[test("encode - standard uses '+'")]
+func encodeStandardPlus() bool { return encodes_to("~~~", Alphabet::Standard, "fn5+"); }
+
+#[test("encode - url-safe uses '_'")]
+func encodeUrlSafeUnderscore() bool { return encodes_to("???", Alphabet::UrlSafe, "Pz8_"); }
+
+#[test("encode - url-safe uses '-'")]
+func encodeUrlSafeDash() bool { return encodes_to("~~~", Alphabet::UrlSafe, "fn5-"); }
+
+#[test("encode - high bytes")]
+func encodeHighBytes() bool {
+    var data = [3]u8 { 0xFB, 0xFF, 0xFE };
+    var out = encode_base64(Slice:[u8] { ptr: &data[0], size: 3u }, Alphabet::Standard).unwrap();
+    var ok = view(out).eq("+//+");
+    free(out.ptr);
+    return ok;
+}
+
+//decode
+#[test("decode - empty")]
+func decodeEmpty() bool { return decodes_to("", Alphabet::Standard, ""); }
+
+#[test("decode - f")]
+func decodeF() bool { return decodes_to("Zg==", Alphabet::Standard, "f"); }
+
+#[test("decode - fo")]
+func decodeFo() bool { return decodes_to("Zm8=", Alphabet::Standard, "fo"); }
+
+#[test("decode - foo")]
+func decodeFoo() bool { return decodes_to("Zm9v", Alphabet::Standard, "foo"); }
+
+#[test("decode - foob")]
+func decodeFoob() bool { return decodes_to("Zm9vYg==", Alphabet::Standard, "foob"); }
+
+#[test("decode - fooba")]
+func decodeFooba() bool { return decodes_to("Zm9vYmE=", Alphabet::Standard, "fooba"); }
+
+#[test("decode - foobar")]
+func decodeFoobar() bool { return decodes_to("Zm9vYmFy", Alphabet::Standard, "foobar"); }
+
+#[test("decode - standard alphabet chars")]
+func decodeStandardChars() bool {
+    return decodes_to("Pz8/", Alphabet::Standard, "???") && decodes_to("fn5+", Alphabet::Standard, "~~~");
+}
+
+#[test("decode - url-safe alphabet chars")]
+func decodeUrlSafeChars() bool {
+    return decodes_to("Pz8_", Alphabet::UrlSafe, "???") && decodes_to("fn5-", Alphabet::UrlSafe, "~~~");
+}
+
+
+#[test("decode - unpadded, 2 trailing chars")]
+func decodeUnpadded2() bool { return decodes_to("Zg", Alphabet::Standard, "f"); }
+
+#[test("decode - unpadded, 3 trailing chars")]
+func decodeUnpadded3() bool { return decodes_to("Zm8", Alphabet::Standard, "fo"); }
+
+#[test("decode - unpadded, multiple groups")]
+func decodeUnpaddedLong() bool { return decodes_to("Zm9vYmE", Alphabet::UrlSafe, "fooba"); }
+
+
+#[test("decode - rejects single char")]
+func rejectSingleChar() bool { return rejects("Z", Alphabet::Standard); }
+
+#[test("decode - rejects 1 char tail")]
+func rejectOneCharTail() bool { return rejects("Zm9vY", Alphabet::Standard); }
+
+#[test("decode - rejects padding with bad length")]
+func rejectPaddingBadLength() bool {
+    return rejects("Zg=", Alphabet::Standard) && rejects("Zm8==", Alphabet::Standard);
+}
+
+#[test("decode - rejects too much padding")]
+func rejectTooMuchPadding() bool {
+    return rejects("Z===", Alphabet::Standard) && rejects("====", Alphabet::Standard);
+}
+
+#[test("decode - rejects padding in the middle")]
+func rejectPaddingMiddle() bool {
+    return rejects("Zg==Zg==", Alphabet::Standard) && rejects("AB=C", Alphabet::Standard);
+}
+
+#[test("decode - rejects invalid characters")]
+func rejectInvalidChars() bool {
+    return rejects("Zm9v!A==", Alphabet::Standard) && rejects("Zm 9", Alphabet::Standard);
+}
+
+#[test("decode - rejects url-safe chars in standard")]
+func rejectUrlSafeInStandard() bool { return rejects("fn5-", Alphabet::Standard); }
+
+#[test("decode - rejects standard chars in url-safe")]
+func rejectStandardInUrlSafe() bool { return rejects("Pz8/", Alphabet::UrlSafe); }
+
+// _str variants
+#[test("encode_str - foobar")]
+func encodeStrFoobar() bool { return str_matches(encode_base64_str("foobar", Alphabet::Standard), "Zm9vYmFy"); }
+
+#[test("encode_str - padded, url-safe")]
+func encodeStrUrlSafe() bool { return str_matches(encode_base64_str("???f", Alphabet::UrlSafe), "Pz8_Zg=="); }
+
+#[test("encode_str - empty")]
+func encodeStrEmpty() bool { return str_matches(encode_base64_str("", Alphabet::Standard), ""); }
+
+#[test("decode_str - foobar")]
+func decodeStrFoobar() bool { return str_matches(decode_base64_str("Zm9vYmFy", Alphabet::Standard), "foobar"); }
+
+#[test("decode_str - unpadded, url-safe")]
+func decodeStrUrlSafe() bool { return str_matches(decode_base64_str("Pz8_Zg", Alphabet::UrlSafe), "???f"); }
+
+#[test("decode_str - rejects invalid input")]
+func decodeStrRejects() bool { return decode_base64_str("Zm9v!A==", Alphabet::Standard).is_none(); }
+
+#[test("_str - accepts std::String input")]
+func strAcceptsString() bool {
+    var input = String::new("hello world");
+    var enc = encode_base64_str(input, Alphabet::Standard);
+    input.free();
+
+    if (enc.is_none()) return false;
+
+    var text = enc.unwrap();
+    var ok = str_matches(decode_base64_str(text, Alphabet::Standard), "hello world");
+    text.free();
+    return ok;
+}
+
+// roundtrip
+#[test("roundtrip - all byte values, every length 0..256")]
+func roundtripAllBytes() bool {
+    var data: [256]u8;
+    for (var i = 0u; i < 256u; i++) data[i] = i as u8;
+
+    for (var len = 0u; len <= 256u; len++) {
+        var slice = Slice:[u8] { ptr: &data[0], size: len };
+        if (!roundtrips(slice, Alphabet::Standard)) return false;
+        if (!roundtrips(slice, Alphabet::UrlSafe)) return false;
+    }
+
+    return true;
+}
